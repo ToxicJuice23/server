@@ -7,24 +7,26 @@
 #include <openssl/err.h>
 #define __dirname "/home/jujur/coding/c/example/public"
 
-void send_404(int client) {
+void send_404(SSL* ssl) {
     char* message = "HTTP/1.1 404 Not Found\r\nConnection: close\r\nContent-Type: text/html\r\n\r\n<html>"
 "<head><title>404 Not Found</title></head>"
 "<center><h1>404 Not Found</h1></center>"
 "</body>"
 "</html>";
-    send(client, message, strlen(message), 0);
-    close(client);
+    SSL_write(ssl, message, strlen(message));
+    SSL_shutdown(ssl);
+    SSL_free(ssl);
 }
 
-void send_400(int client) {
+void send_400(SSL* ssl) {
     char* message = "HTTP/1.1 400 Bad Request\r\nConnection: close\r\nContent-Type: text/html\r\n\r\n<html>"
 "<head><title>400 Bad Request</title></head>"
 "<center><h1>400 Bad Request</h1></center>"
 "</body>"
 "</html>";
-    send(client, message, strlen(message), 0);
-    close(client);
+    SSL_write(ssl, message, strlen(message));
+    SSL_shutdown(ssl);
+    SSL_free(ssl);
 }
 
 char* get_content_type(const char* path) {
@@ -46,17 +48,17 @@ char* get_content_type(const char* path) {
     return "application/octet-stream";
 }
 
-void serve_resource(int client, char* filename) {
+void serve_resource(SSL* ssl, char* filename) {
     char fn[100];
     sprintf(fn, "%s%s", __dirname, filename);
     if (strstr(fn, "..")) {
         printf("Bad request\n");
-        send_400(client);
+        send_400(ssl);
         return;
     }
     FILE* fp = fopen(fn, "r");
     if (!fp) {
-        send_404(client);
+        send_404(ssl);
         printf("sent 404\n");
         return;
     }
@@ -65,11 +67,19 @@ void serve_resource(int client, char* filename) {
     rewind(fp);
     char fb[50000];
     fread(fb, sz, 1, fp);
-    send(client, fb, sz, 0);
-    close(client);
+    SSL_write(ssl, fb, sz);
+    SSL_shutdown(ssl);
+    SSL_free(ssl);
 }
 
 int main(int argc, char** argv) {
+    // init ctx
+    SSL_library_init();
+    OpenSSL_add_all_algorithms();
+    SSL_load_error_strings();
+    SSL_CTX* ctx = SSL_CTX_new(TLS_server_method());
+    SSL_CTX_use_certificate_file(ctx, "cert.pem", SSL_FILETYPE_PEM);
+    SSL_CTX_use_PrivateKey_file(ctx, "key.pem", SSL_FILETYPE_PEM);
     // server code
     struct addrinfo hints;
     memset(&hints, 0, sizeof(hints));
@@ -89,13 +99,17 @@ int main(int argc, char** argv) {
         int client = accept(socket_listen, &clientaddr, &clientlen);
         char name_buffer[100];
         getnameinfo(&clientaddr, clientlen, name_buffer, 100, 0, 0, NI_NUMERICHOST);
+        SSL* ssl = SSL_new(ctx);
+        SSL_set_fd(ssl, client);
+        SSL_accept(ssl);
+        printf("SSL connection type %s\n", SSL_get_cipher(ssl));
 
         char request[4096];
-        int br = recv(client, request, 4096, 0);
+        int br = SSL_read(ssl, request, 4096);
         sprintf(request, "%.*s", br, request);
         if (!strstr(request, "GET ")) {
             printf("Invalid request\n");
-            send_400(client);
+            send_400(ssl);
             continue;
         }
             char* p = request;
@@ -109,18 +123,19 @@ int main(int argc, char** argv) {
             char filename[200] = __dirname;
             strcat(filename, p);
             if (!fopen(filename, "r")) {
-                send_404(client);
+                send_404(ssl);
                 continue;
             }
             if (strstr(filename, "..")) {
-                send_400(client);
+                send_400(ssl);
                 continue;
             }
 
             char message[300];
             sprintf(message, "HTTP/1.1 200 OK\r\nContent-Type: %s\r\nConnection: close\r\n\r\n",
             content_type);
-            send(client, message, strlen(message), 0);
-            serve_resource(client, p);
+            SSL_write(ssl, message, strlen(message));
+            serve_resource(ssl, p);
+            close(client);
     }
 }
