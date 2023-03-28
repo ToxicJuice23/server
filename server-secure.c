@@ -5,6 +5,7 @@
 #include <openssl/pem.h>
 #include <openssl/ssl.h>
 #include <openssl/err.h>
+#include <pthread.h>
 #define __dirname "/home/jujur/coding/c/example/public"
 
 void send_404(SSL* ssl) {
@@ -73,6 +74,10 @@ void serve_resource(SSL* ssl, char* filename) {
 }
 
 int main(int argc, char** argv) {
+    if (argc < 2) {
+        printf("Usage: sudo ./server-secure port");
+        exit(1);
+    }
     // init ctx
     SSL_library_init();
     OpenSSL_add_all_algorithms();
@@ -97,45 +102,73 @@ int main(int argc, char** argv) {
         struct sockaddr_storage* clientaddr;
         socklen_t clientlen = sizeof(clientaddr);
         int client = accept(socket_listen, &clientaddr, &clientlen);
+        if (!client) {
+            printf("Invalid socket\n");
+            exit(1);
+        }
         char name_buffer[100];
         getnameinfo(&clientaddr, clientlen, name_buffer, 100, 0, 0, NI_NUMERICHOST);
         SSL* ssl = SSL_new(ctx);
         SSL_set_fd(ssl, client);
         SSL_accept(ssl);
         printf("SSL connection type %s\n", SSL_get_cipher(ssl));
-
-        char request[4096];
-        int br = SSL_read(ssl, request, 4096);
-        sprintf(request, "%.*s", br, request);
-        if (!strstr(request, "GET ")) {
-            printf("Invalid request\n");
-            send_400(ssl);
+        if (!ssl || ssl == NULL) {
+            printf("SSL connection failed\n");
+            SSL_shutdown(ssl);
+            SSL_free(ssl);
+            close(client);
             continue;
         }
+        int pid = fork();
+        if (pid == 0) {
+            printf("Client connected, creating new thread\n");
+            char request[4096];
+            int br = SSL_read(ssl, request, 4096);
+            sprintf(request, "%.*s", br, request);
+            if (!strstr(request, "GET ") && !strstr(request, "POST ")) {
+                printf("Invalid request\n");
+                send_400(ssl);
+                continue;
+            } else if (strstr(request, "POST ")) {
+                printf("Post request\n");
+                printf("Request: %s\n", request);
+                char* body = strstr(request, "\r\n\r\n");
+                body += 4;
+                printf("Request body is %s\n", body);
+
+                char* response = "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Type: text/plain\r\n\r\n";
+                SSL_write(ssl, response, strlen(response));
+                SSL_write(ssl, body, strlen(body));
+                SSL_shutdown(ssl);
+                SSL_free(ssl);
+                close(client);
+                continue;
+            }
             char* p = request;
             p += 4;
             char* q = strstr(p, " ");
             *q = 0;
             printf("Request from %s at path %s\n", name_buffer, p);
             if (strcmp(p, "/") == 0) {p = "/index.html";}
-            char* content_type = get_content_type(p);
-
             char filename[200] = __dirname;
             strcat(filename, p);
-            if (!fopen(filename, "r")) {
+            if (access(filename, F_OK) != 0) {
                 send_404(ssl);
+                printf("Sent 404\n");
+                return 1;
                 continue;
             }
             if (strstr(filename, "..")) {
                 send_400(ssl);
                 continue;
             }
-
+            char* content_type = get_content_type(p);
             char message[300];
             sprintf(message, "HTTP/1.1 200 OK\r\nContent-Type: %s\r\nConnection: close\r\n\r\n",
             content_type);
             SSL_write(ssl, message, strlen(message));
             serve_resource(ssl, p);
             close(client);
+        }
     }
 }
