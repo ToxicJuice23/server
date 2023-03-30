@@ -61,6 +61,7 @@ char* get_content_type(const char* path) {
 void serve_resource(SSL* ssl, char* filename) {
     char fn[100];
     sprintf(fn, "%s%s", __dirname, filename);
+    printf("Filename %s\n", fn);
     if (strstr(fn, "..")) {
         printf("Bad request\n");
         send_400(ssl);
@@ -75,9 +76,16 @@ void serve_resource(SSL* ssl, char* filename) {
     fseek(fp, 0L, SEEK_END);
     int sz = ftell(fp);
     rewind(fp);
-    char fb[50000];
+    char fb[5000000];
+    char header[400];
     fread(fb, sz, 1, fp);
-    SSL_write(ssl, fb, sz);
+
+    char* content_type = get_content_type(filename);
+    sprintf(header, "HTTP/1.1 200 OK\r\nContent-Type: %s\r\nConnection: close\r\n\r\n",
+    content_type);
+
+    SSL_write(ssl, header, strlen(header));
+    int bs = SSL_write(ssl, fb, sz);
     SSL_shutdown(ssl);
     SSL_free(ssl);
 }
@@ -178,11 +186,7 @@ int main(int argc, char** argv) {
                 send_400(ssl);
                 continue;
             }
-            char* content_type = get_content_type(p);
-            char message[300];
-            sprintf(message, "HTTP/1.1 200 OK\r\nContent-Type: %s\r\nConnection: close\r\n\r\n",
-            content_type);
-            SSL_write(ssl, message, strlen(message));
+            printf("Sending resource %s\n", p);
             serve_resource(ssl, p);
             close(client);
         }
