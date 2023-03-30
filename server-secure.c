@@ -61,7 +61,6 @@ char* get_content_type(const char* path) {
 void serve_resource(SSL* ssl, char* filename) {
     char fn[100];
     sprintf(fn, "%s%s", __dirname, filename);
-    printf("Filename %s\n", fn);
     if (strstr(fn, "..")) {
         printf("Bad request\n");
         send_400(ssl);
@@ -186,7 +185,7 @@ int main(int argc, char** argv) {
                 send_400(ssl);
                 continue;
             }
-            printf("Sending resource %s\n", p);
+            
             serve_resource(ssl, p);
             close(client);
         }
