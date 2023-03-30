@@ -111,7 +111,6 @@ int main(int argc, char** argv) {
         SSL* ssl = SSL_new(ctx);
         SSL_set_fd(ssl, client);
         SSL_accept(ssl);
-        printf("SSL connection type %s\n", SSL_get_cipher(ssl));
         if (!ssl || ssl == NULL) {
             printf("SSL connection failed\n");
             SSL_shutdown(ssl);
@@ -121,7 +120,7 @@ int main(int argc, char** argv) {
         }
         int pid = fork();
         if (pid == 0) {
-            printf("Client connected, creating new thread\n");
+            printf("\nClient connected, creating new thread\n");
             char request[4096];
             int br = SSL_read(ssl, request, 4096);
             sprintf(request, "%.*s", br, request);
@@ -131,7 +130,6 @@ int main(int argc, char** argv) {
                 continue;
             } else if (strstr(request, "POST ")) {
                 printf("Post request\n");
-                printf("Request: %s\n", request);
                 char* body = strstr(request, "\r\n\r\n");
                 body += 4;
                 printf("Request body is %s\n", body);
@@ -148,7 +146,16 @@ int main(int argc, char** argv) {
             p += 4;
             char* q = strstr(p, " ");
             *q = 0;
-            printf("Request from %s at path %s\n", name_buffer, p);
+            time_t timer;
+            time(&timer);
+            char* t = ctime(&timer);
+            t[strlen(t) - 1] = 0;
+            printf("%s: Request from %s at path %s using cipher %s\n", t, name_buffer, p, SSL_get_cipher(ssl));
+            if (strstr(p, "//")) {
+                printf("Devious request.\n");
+                send_400(ssl);
+                continue;
+            }
             if (strcmp(p, "/") == 0) {p = "/index.html";}
             char filename[200] = __dirname;
             strcat(filename, p);
