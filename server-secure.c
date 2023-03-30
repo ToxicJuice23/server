@@ -91,7 +91,7 @@ void serve_resource(SSL* ssl, char* filename) {
 
 int main(int argc, char** argv) {
     if (argc < 2) {
-        printf("Usage: sudo ./server-secure port");
+        printf("Usage: sudo ./server-secure port\n");
         exit(1);
     }
     // init ctx
@@ -109,11 +109,15 @@ int main(int argc, char** argv) {
     hints.ai_flags = AI_PASSIVE;
     struct addrinfo* bindaddr;
     getaddrinfo(0, argv[1], &hints, &bindaddr);
+    // create socket
     int socket_listen = socket(bindaddr->ai_family, bindaddr->ai_socktype, bindaddr->ai_protocol);
     printf("Created socket\n");
-    bind(socket_listen, bindaddr->ai_addr, bindaddr->ai_addrlen);
+    if (bind(socket_listen, bindaddr->ai_addr, bindaddr->ai_addrlen)) {
+        printf("Bind() failed. %s\n", strerror(errno));
+        exit(1);
+    }
     listen(socket_listen, 10);
-
+    // main loop
     while (1) {
         struct sockaddr_storage* clientaddr;
         socklen_t clientlen = sizeof(clientaddr);
@@ -124,6 +128,7 @@ int main(int argc, char** argv) {
         }
         char name_buffer[100];
         getnameinfo(&clientaddr, clientlen, name_buffer, 100, 0, 0, NI_NUMERICHOST);
+        // create ssl instance
         SSL* ssl = SSL_new(ctx);
         SSL_set_fd(ssl, client);
         SSL_accept(ssl);
@@ -134,9 +139,9 @@ int main(int argc, char** argv) {
             close(client);
             continue;
         }
+        // handle client in new thread
         int pid = fork();
         if (pid == 0) {
-            printf("\nClient connected, creating new thread\n");
             char request[4096];
             int br = SSL_read(ssl, request, 4096);
             sprintf(request, "%.*s", br, request);
@@ -158,6 +163,7 @@ int main(int argc, char** argv) {
                 close(client);
                 continue;
             }
+            // analize path
             char* p = request;
             p += 4;
             char* q = strstr(p, " ");
@@ -185,7 +191,7 @@ int main(int argc, char** argv) {
                 send_400(ssl);
                 continue;
             }
-            
+            // send resource to the client
             serve_resource(ssl, p);
             close(client);
         }
