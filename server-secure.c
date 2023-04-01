@@ -15,7 +15,7 @@
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 #include <pthread.h>
-#define __dirname "/home/jujur/coding/c/example/public"
+#define __dirname "/home/jujur/coding/c/server/public"
 
 void send_404(SSL* ssl) {
     char* message = "HTTP/1.1 404 Not Found\r\nConnection: close\r\nContent-Type: text/html\r\n\r\n<html>"
